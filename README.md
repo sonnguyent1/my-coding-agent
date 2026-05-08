@@ -13,6 +13,12 @@ Background automation project that:
 - `/automation/orchestrator.py` - Main background automation logic.
 - `/.github/workflows/background-automation.yml` - Scheduled GitHub Actions workflow (every 10 minutes).
 - `/tests/test_orchestrator.py` - Focused unit tests for routing/body generation logic.
+- `/docs/technical-implementation-and-deployment.md` - End-to-end technical flow and deployment guide.
+
+## Dependencies
+
+No `requirements.txt` file is required right now because the automation uses only Python standard library modules.
+If you later add third-party Python packages, add a `requirements.txt` file and install them in the workflow.
 
 ## Configuration
 
