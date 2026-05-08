@@ -29,7 +29,7 @@ class SelectRepositoryTests(unittest.TestCase):
         self.assertEqual("org/backend-api", selected.full_name)
 
     def test_select_repository_raises_when_candidates_empty(self) -> None:
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "No repository candidates configured"):
             select_repository(self.ticket, [], ai_hint=None)
 
 

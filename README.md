@@ -6,7 +6,7 @@ Background automation project that:
 2. Reads ticket details (name, description, tags).
 3. Uses an AI hint (optional) plus keyword routing to select the most relevant GitHub repository.
 4. Creates an implementation issue in that repository and optionally dispatches a coding workflow that can commit and create a PR.
-5. Checks for a related PR and emails you once one is found, so you can review/approve or apply manual fixes.
+5. Checks TODO tickets for related PRs and emails you once one is found, so you can review/approve or apply manual fixes. If `TRELLO_DONE_LIST_ID` is configured, notified cards are moved to DONE to avoid duplicate notifications.
 
 ## Files
 
@@ -22,6 +22,7 @@ Set these repository secrets:
 - `TRELLO_TOKEN`
 - `TRELLO_INBOX_LIST_ID`
 - `TRELLO_TODO_LIST_ID`
+- `TRELLO_DONE_LIST_ID` (optional but recommended for one-time PR notifications)
 - `REPO_CATALOG_JSON` (JSON list, for example:
   `[{"full_name":"your-org/repo-a","keywords":["api","backend"]},{"full_name":"your-org/repo-b","keywords":["ui","frontend"]}]`)
 - `AUTOMATION_GITHUB_TOKEN` (token with repo + workflow permissions on target repos)

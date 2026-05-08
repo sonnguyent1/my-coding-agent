@@ -26,6 +26,7 @@ jobs:
           TRELLO_TOKEN: ${{ secrets.TRELLO_TOKEN }}
           TRELLO_INBOX_LIST_ID: ${{ secrets.TRELLO_INBOX_LIST_ID }}
           TRELLO_TODO_LIST_ID: ${{ secrets.TRELLO_TODO_LIST_ID }}
+          TRELLO_DONE_LIST_ID: ${{ secrets.TRELLO_DONE_LIST_ID }}
           REPO_CATALOG_JSON: ${{ secrets.REPO_CATALOG_JSON }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}

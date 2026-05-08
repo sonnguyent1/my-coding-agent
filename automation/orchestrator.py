@@ -145,7 +145,10 @@ def request_ai_repo_hint(ticket: Ticket, candidates: list[RepoCandidate], api_ke
 
 def send_email_notification(pr_url: str, ticket: Ticket) -> None:
     host = os.environ.get("SMTP_HOST")
-    port = int(os.environ.get("SMTP_PORT", "587"))
+    try:
+        port = int(os.environ.get("SMTP_PORT", "587"))
+    except ValueError as exc:
+        raise ValueError("SMTP_PORT must be a valid integer") from exc
     username = os.environ.get("SMTP_USERNAME")
     password = os.environ.get("SMTP_PASSWORD")
     sender = os.environ.get("EMAIL_SENDER")
@@ -170,6 +173,7 @@ def run() -> int:
     trello_token = os.environ["TRELLO_TOKEN"]
     inbox_list_id = os.environ["TRELLO_INBOX_LIST_ID"]
     todo_list_id = os.environ["TRELLO_TODO_LIST_ID"]
+    done_list_id = os.environ.get("TRELLO_DONE_LIST_ID")
     github_token = os.environ["GITHUB_TOKEN"]
     repo_catalog = parse_repo_catalog(os.environ["REPO_CATALOG_JSON"])
     workflow_file = os.environ.get("TARGET_AUTOMATION_WORKFLOW", "").strip()
@@ -209,6 +213,25 @@ def run() -> int:
         pr_url = find_related_pr(owner, repo, ticket.id, github_token)
         if pr_url:
             send_email_notification(pr_url, ticket)
+
+    todo_cards = fetch_trello_cards(todo_list_id, key=trello_key, token=trello_token)
+    for raw in todo_cards:
+        ticket = Ticket(
+            id=raw["shortLink"],
+            title=raw["name"],
+            description=raw.get("desc", ""),
+            labels=[label.get("name", "").strip() for label in raw.get("labels", []) if label.get("name")],
+        )
+        ai_hint = request_ai_repo_hint(ticket, repo_catalog, openai_api_key)
+        target_repo = select_repository(ticket, repo_catalog, ai_hint=ai_hint)
+        if "/" not in target_repo.full_name:
+            raise ValueError(f"Repository full_name must be in owner/repo format: {target_repo.full_name}")
+        owner, repo = target_repo.full_name.split("/", 1)
+        pr_url = find_related_pr(owner, repo, ticket.id, github_token)
+        if pr_url:
+            send_email_notification(pr_url, ticket)
+            if done_list_id:
+                move_card_to_list(raw["id"], done_list_id, key=trello_key, token=trello_token)
     return 0
 
 
