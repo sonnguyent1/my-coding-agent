@@ -6,7 +6,7 @@ The background process is implemented in `automation/orchestrator.py` and execut
 
 Workflow behavior:
 
-1. Trigger every 10 minutes (or manually).
+1. Triggers every 10 minutes (or manually).
 2. Read Trello inbox cards from `TRELLO_INBOX_LIST_ID`.
 3. Build a ticket model from Trello card name/description/labels.
 4. Select a target repository:
@@ -61,5 +61,5 @@ Workflow behavior:
 
 ## 4) Operational notes
 
-- No `requirements.txt` is needed currently because only Python standard library is used.
+- No `requirements.txt` is needed; the automation uses only Python standard library modules.
 - If external libraries are introduced later, add `requirements.txt` and install dependencies in workflow steps before running the orchestrator.
