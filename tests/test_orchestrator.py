@@ -32,6 +32,16 @@ class SelectRepositoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "No repository candidates configured"):
             select_repository(self.ticket, [], ai_hint=None)
 
+    def test_select_repository_returns_first_candidate_when_no_keywords_match(self) -> None:
+        ticket = Ticket(
+            id="none",
+            title="Unrelated task",
+            description="No matching words here.",
+            labels=[],
+        )
+        selected = select_repository(ticket, self.repos, ai_hint=None)
+        self.assertEqual("org/frontend-app", selected.full_name)
+
 
 class BuildIssueBodyTests(unittest.TestCase):
     def test_build_issue_body_contains_ticket_fields(self) -> None:
@@ -46,6 +56,16 @@ class BuildIssueBodyTests(unittest.TestCase):
         self.assertIn("Title: Implement caching", body)
         self.assertIn("Labels: performance", body)
         self.assertIn("Cache expensive query.", body)
+
+    def test_build_issue_body_uses_empty_description_fallback(self) -> None:
+        ticket = Ticket(
+            id="d0",
+            title="No description",
+            description="   ",
+            labels=[],
+        )
+        body = build_issue_body(ticket)
+        self.assertIn("(no description provided)", body)
 
 
 if __name__ == "__main__":

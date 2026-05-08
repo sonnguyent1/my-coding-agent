@@ -33,6 +33,8 @@ def _http_json(url: str, method: str = "GET", headers: dict[str, str] | None = N
     except error.HTTPError as exc:
         details = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"HTTP {exc.code} calling {url}: {details}") from exc
+    except error.URLError as exc:
+        raise RuntimeError(f"Network error calling {url}: {exc.reason}") from exc
 
 
 def parse_repo_catalog(raw_catalog: str) -> list[RepoCandidate]:
@@ -162,10 +164,13 @@ def send_email_notification(pr_url: str, ticket: Ticket) -> None:
     msg["To"] = recipient
     msg.set_content(f"Ticket {ticket.id} now has a pull request ready:\n{pr_url}")
 
-    with smtplib.SMTP(host, port) as smtp:
-        smtp.starttls()
-        smtp.login(username, password)
-        smtp.send_message(msg)
+    try:
+        with smtplib.SMTP(host, port) as smtp:
+            smtp.starttls()
+            smtp.login(username, password)
+            smtp.send_message(msg)
+    except (smtplib.SMTPException, OSError):
+        return
 
 
 def run() -> int:
@@ -188,8 +193,7 @@ def run() -> int:
             description=raw.get("desc", ""),
             labels=[label.get("name", "").strip() for label in raw.get("labels", []) if label.get("name")],
         )
-        ai_hint = request_ai_repo_hint(ticket, repo_catalog, openai_api_key)
-        target_repo = select_repository(ticket, repo_catalog, ai_hint=ai_hint)
+        target_repo = select_repository(ticket, repo_catalog, ai_hint=None)
         if "/" not in target_repo.full_name:
             raise ValueError(f"Repository full_name must be in owner/repo format: {target_repo.full_name}")
         owner, repo = target_repo.full_name.split("/", 1)
