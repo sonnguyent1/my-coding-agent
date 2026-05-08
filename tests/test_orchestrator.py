@@ -24,6 +24,14 @@ class SelectRepositoryTests(unittest.TestCase):
         selected = select_repository(self.ticket, self.repos, ai_hint=None)
         self.assertEqual("org/backend-api", selected.full_name)
 
+    def test_select_repository_ignores_non_matching_ai_hint(self) -> None:
+        selected = select_repository(self.ticket, self.repos, ai_hint="org/unknown-repo")
+        self.assertEqual("org/backend-api", selected.full_name)
+
+    def test_select_repository_raises_when_candidates_empty(self) -> None:
+        with self.assertRaises(ValueError):
+            select_repository(self.ticket, [], ai_hint=None)
+
 
 class BuildIssueBodyTests(unittest.TestCase):
     def test_build_issue_body_contains_ticket_fields(self) -> None:
@@ -42,4 +50,3 @@ class BuildIssueBodyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

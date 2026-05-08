@@ -117,23 +117,29 @@ def request_ai_repo_hint(ticket: Ticket, candidates: list[RepoCandidate], api_ke
 
     prompt = {
         "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-        "input": (
-            "Choose the most relevant repository full name from the list only.\n"
-            f"Repositories: {', '.join(candidate.full_name for candidate in candidates)}\n"
-            f"Ticket title: {ticket.title}\n"
-            f"Ticket description: {ticket.description}\n"
-            f"Ticket labels: {', '.join(ticket.labels)}\n"
-            "Output only the repository full name."
-        ),
+        "messages": [
+            {
+                "role": "user",
+                "content": (
+                    "Choose the most relevant repository full name from the list only.\n"
+                    f"Repositories: {', '.join(candidate.full_name for candidate in candidates)}\n"
+                    f"Ticket title: {ticket.title}\n"
+                    f"Ticket description: {ticket.description}\n"
+                    f"Ticket labels: {', '.join(ticket.labels)}\n"
+                    "Output only the repository full name."
+                ),
+            }
+        ],
+        "temperature": 0,
     }
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = _http_json("https://api.openai.com/v1/responses", method="POST", headers=headers, payload=prompt)
-    output = payload.get("output", []) if payload else []
-    for item in output:
-        for content in item.get("content", []):
-            text = content.get("text")
-            if text:
-                return text.strip()
+    payload = _http_json("https://api.openai.com/v1/chat/completions", method="POST", headers=headers, payload=prompt)
+    choices = payload.get("choices", []) if payload else []
+    if choices:
+        message = choices[0].get("message", {})
+        text = message.get("content")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
     return None
 
 
@@ -178,9 +184,10 @@ def run() -> int:
             description=raw.get("desc", ""),
             labels=[label.get("name", "").strip() for label in raw.get("labels", []) if label.get("name")],
         )
-        move_card_to_list(raw["id"], todo_list_id, key=trello_key, token=trello_token)
         ai_hint = request_ai_repo_hint(ticket, repo_catalog, openai_api_key)
         target_repo = select_repository(ticket, repo_catalog, ai_hint=ai_hint)
+        if "/" not in target_repo.full_name:
+            raise ValueError(f"Repository full_name must be in owner/repo format: {target_repo.full_name}")
         owner, repo = target_repo.full_name.split("/", 1)
         issue = create_issue(
             owner=owner,
@@ -198,6 +205,7 @@ def run() -> int:
                 inputs={"issue_number": str(issue["number"]), "ticket_id": ticket.id},
                 token=github_token,
             )
+        move_card_to_list(raw["id"], todo_list_id, key=trello_key, token=trello_token)
         pr_url = find_related_pr(owner, repo, ticket.id, github_token)
         if pr_url:
             send_email_notification(pr_url, ticket)
@@ -206,4 +214,3 @@ def run() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(run())
-
