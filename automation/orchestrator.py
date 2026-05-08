@@ -193,7 +193,8 @@ def run() -> int:
             description=raw.get("desc", ""),
             labels=[label.get("name", "").strip() for label in raw.get("labels", []) if label.get("name")],
         )
-        target_repo = select_repository(ticket, repo_catalog, ai_hint=None)
+        ai_hint = request_ai_repo_hint(ticket, repo_catalog, openai_api_key)
+        target_repo = select_repository(ticket, repo_catalog, ai_hint=ai_hint)
         if "/" not in target_repo.full_name:
             raise ValueError(f"Repository full_name must be in owner/repo format: {target_repo.full_name}")
         owner, repo = target_repo.full_name.split("/", 1)
@@ -226,8 +227,7 @@ def run() -> int:
             description=raw.get("desc", ""),
             labels=[label.get("name", "").strip() for label in raw.get("labels", []) if label.get("name")],
         )
-        ai_hint = request_ai_repo_hint(ticket, repo_catalog, openai_api_key)
-        target_repo = select_repository(ticket, repo_catalog, ai_hint=ai_hint)
+        target_repo = select_repository(ticket, repo_catalog, ai_hint=None)
         if "/" not in target_repo.full_name:
             raise ValueError(f"Repository full_name must be in owner/repo format: {target_repo.full_name}")
         owner, repo = target_repo.full_name.split("/", 1)
