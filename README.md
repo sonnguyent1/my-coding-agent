@@ -17,8 +17,13 @@ Background automation project that:
 
 ## Dependencies
 
-No `requirements.txt` file is required right now because the automation uses only Python standard library modules.
-If you later add third-party Python packages, add a `requirements.txt` file and install them in the workflow.
+Install dependencies from `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```
+
+The project uses `python-dotenv` to load environment variables from a `.env` file for local runs.
 
 ## Configuration
 
