@@ -1,0 +1,42 @@
+name: Background Ticket Automation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  automate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run Trello to GitHub automation
+        env:
+          TRELLO_API_KEY: ${{ secrets.TRELLO_API_KEY }}
+          TRELLO_TOKEN: ${{ secrets.TRELLO_TOKEN }}
+          TRELLO_INBOX_LIST_ID: ${{ secrets.TRELLO_INBOX_LIST_ID }}
+          TRELLO_TODO_LIST_ID: ${{ secrets.TRELLO_TODO_LIST_ID }}
+          TRELLO_DONE_LIST_ID: ${{ secrets.TRELLO_DONE_LIST_ID }}
+          REPO_CATALOG_JSON: ${{ secrets.REPO_CATALOG_JSON }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          TARGET_AUTOMATION_WORKFLOW: ${{ vars.TARGET_AUTOMATION_WORKFLOW }}
+          TARGET_AUTOMATION_REF: ${{ vars.TARGET_AUTOMATION_REF }}
+          GITHUB_TOKEN: ${{ secrets.AUTOMATION_GITHUB_TOKEN }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: python -m automation.orchestrator
