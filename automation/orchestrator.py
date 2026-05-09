@@ -176,51 +176,24 @@ def send_email_notification(pr_url: str, ticket: Ticket) -> None:
 def run() -> int:
     trello_key = os.environ["TRELLO_API_KEY"]
     trello_token = os.environ["TRELLO_TOKEN"]
-    inbox_list_id = os.environ["TRELLO_INBOX_LIST_ID"]
     todo_list_id = os.environ["TRELLO_TODO_LIST_ID"]
+    doing_list_id = os.environ["TRELLO_DOING_LIST_ID"]
     done_list_id = os.environ.get("TRELLO_DONE_LIST_ID")
     github_token = os.environ["GITHUB_TOKEN"]
     repo_catalog = parse_repo_catalog(os.environ["REPO_CATALOG_JSON"])
-    workflow_file = os.environ.get("TARGET_AUTOMATION_WORKFLOW", "").strip()
-    workflow_ref = os.environ.get("TARGET_AUTOMATION_REF", "main")
-    openai_api_key = os.environ.get("OPENAI_API_KEY")
-
-    cards = fetch_trello_cards(inbox_list_id, key=trello_key, token=trello_token)
-    for raw in cards:
-        ticket = Ticket(
-            id=raw["shortLink"],
-            title=raw["name"],
-            description=raw.get("desc", ""),
-            labels=[label.get("name", "").strip() for label in raw.get("labels", []) if label.get("name")],
-        )
-        ai_hint = request_ai_repo_hint(ticket, repo_catalog, openai_api_key)
-        target_repo = select_repository(ticket, repo_catalog, ai_hint=ai_hint)
-        if "/" not in target_repo.full_name:
-            raise ValueError(f"Repository full_name must be in owner/repo format: {target_repo.full_name}")
-        owner, repo = target_repo.full_name.split("/", 1)
-        issue = create_issue(
-            owner=owner,
-            repo=repo,
-            title=f"[Automation] {ticket.id} - {ticket.title}",
-            body=build_issue_body(ticket),
-            token=github_token,
-        )
-        if workflow_file:
-            dispatch_workflow(
-                owner=owner,
-                repo=repo,
-                workflow_file=workflow_file,
-                ref=workflow_ref,
-                inputs={"issue_number": str(issue["number"]), "ticket_id": ticket.id},
-                token=github_token,
-            )
-        move_card_to_list(raw["id"], todo_list_id, key=trello_key, token=trello_token)
-        pr_url = find_related_pr(owner, repo, ticket.id, github_token)
-        if pr_url:
-            send_email_notification(pr_url, ticket)
 
     todo_cards = fetch_trello_cards(todo_list_id, key=trello_key, token=trello_token)
+
+    # Move one card from TODO to DOING
+    doing_card_id: str | None = None
+    if todo_cards:
+        doing_card_id = todo_cards[0]["id"]
+        move_card_to_list(doing_card_id, doing_list_id, key=trello_key, token=trello_token)
+
+    # Check remaining TODO cards for related PRs and move to DONE
     for raw in todo_cards:
+        if raw["id"] == doing_card_id:
+            continue
         ticket = Ticket(
             id=raw["shortLink"],
             title=raw["name"],
