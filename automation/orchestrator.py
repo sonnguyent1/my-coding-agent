@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
-import os
 import smtplib
 from dataclasses import dataclass
 from email.message import EmailMessage
+from os import getenv
 from typing import Any
 from urllib import error, parse, request
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,13 @@ def _http_json(url: str, method: str = "GET", headers: dict[str, str] | None = N
         raise RuntimeError(f"HTTP {exc.code} calling {url}: {details}") from exc
     except error.URLError as exc:
         raise RuntimeError(f"Network error calling {url}: {exc.reason}") from exc
+
+
+def _require_env(name: str) -> str:
+    value = getenv(name)
+    if value is None:
+        raise KeyError(name)
+    return value
 
 
 def parse_repo_catalog(raw_catalog: str) -> list[RepoCandidate]:
@@ -118,7 +129,7 @@ def request_ai_repo_hint(ticket: Ticket, candidates: list[RepoCandidate], api_ke
         return None
 
     prompt = {
-        "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        "model": getenv("OPENAI_MODEL", "gpt-4o-mini"),
         "messages": [
             {
                 "role": "user",
@@ -146,15 +157,15 @@ def request_ai_repo_hint(ticket: Ticket, candidates: list[RepoCandidate], api_ke
 
 
 def send_email_notification(pr_url: str, ticket: Ticket) -> None:
-    host = os.environ.get("SMTP_HOST")
+    host = getenv("SMTP_HOST")
     try:
-        port = int(os.environ.get("SMTP_PORT", "587"))
+        port = int(getenv("SMTP_PORT", "587"))
     except ValueError as exc:
         raise ValueError("SMTP_PORT must be a valid integer") from exc
-    username = os.environ.get("SMTP_USERNAME")
-    password = os.environ.get("SMTP_PASSWORD")
-    sender = os.environ.get("EMAIL_SENDER")
-    recipient = os.environ.get("EMAIL_RECIPIENT")
+    username = getenv("SMTP_USERNAME")
+    password = getenv("SMTP_PASSWORD")
+    sender = getenv("EMAIL_SENDER")
+    recipient = getenv("EMAIL_RECIPIENT")
     if not all([host, username, password, sender, recipient]):
         return
 
@@ -174,13 +185,13 @@ def send_email_notification(pr_url: str, ticket: Ticket) -> None:
 
 
 def run() -> int:
-    trello_key = os.environ["TRELLO_API_KEY"]
-    trello_token = os.environ["TRELLO_TOKEN"]
-    todo_list_id = os.environ["TRELLO_TODO_LIST_ID"]
-    doing_list_id = os.environ["TRELLO_DOING_LIST_ID"]
-    done_list_id = os.environ.get("TRELLO_DONE_LIST_ID")
-    github_token = os.environ["GITHUB_TOKEN"]
-    repo_catalog = parse_repo_catalog(os.environ["REPO_CATALOG_JSON"])
+    trello_key = _require_env("TRELLO_API_KEY")
+    trello_token = _require_env("TRELLO_TOKEN")
+    todo_list_id = _require_env("TRELLO_TODO_LIST_ID")
+    doing_list_id = _require_env("TRELLO_DOING_LIST_ID")
+    done_list_id = getenv("TRELLO_DONE_LIST_ID")
+    github_token = _require_env("GITHUB_TOKEN")
+    repo_catalog = parse_repo_catalog(_require_env("REPO_CATALOG_JSON"))
 
     todo_cards = fetch_trello_cards(todo_list_id, key=trello_key, token=trello_token)
 
