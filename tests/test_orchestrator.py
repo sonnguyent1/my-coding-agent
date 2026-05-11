@@ -2,7 +2,8 @@ import os
 import unittest
 from unittest.mock import MagicMock, call, patch
 
-from automation.orchestrator import RepoCandidate, Ticket, build_issue_body, run, select_repository
+from automation.models import RepoCandidate, Ticket
+from automation.orchestrator import build_issue_body, run, select_repository
 
 
 class SelectRepositoryTests(unittest.TestCase):

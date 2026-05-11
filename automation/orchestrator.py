@@ -1,51 +1,17 @@
 from __future__ import annotations
 
 import json
-import smtplib
-from dataclasses import dataclass
-from email.message import EmailMessage
 from os import getenv
-from typing import Any
-from urllib import error, parse, request
 
 from dotenv import load_dotenv
 
+from automation.email import send_email_notification
+from automation.github import find_related_pr
+from automation.http_client import _require_env
+from automation.models import RepoCandidate, Ticket
+from automation.trello import fetch_trello_cards, move_card_to_list
+
 load_dotenv()
-
-
-@dataclass(frozen=True)
-class Ticket:
-    id: str
-    title: str
-    description: str
-    labels: list[str]
-
-
-@dataclass(frozen=True)
-class RepoCandidate:
-    full_name: str
-    keywords: list[str]
-
-
-def _http_json(url: str, method: str = "GET", headers: dict[str, str] | None = None, payload: dict[str, Any] | None = None) -> Any:
-    body = None if payload is None else json.dumps(payload).encode("utf-8")
-    req = request.Request(url=url, method=method, headers=headers or {}, data=body)
-    try:
-        with request.urlopen(req, timeout=30) as response:
-            raw = response.read().decode("utf-8")
-            return None if not raw else json.loads(raw)
-    except error.HTTPError as exc:
-        details = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {exc.code} calling {url}: {details}") from exc
-    except error.URLError as exc:
-        raise RuntimeError(f"Network error calling {url}: {exc.reason}") from exc
-
-
-def _require_env(name: str) -> str:
-    value = getenv(name)
-    if value is None:
-        raise KeyError(name)
-    return value
 
 
 def parse_repo_catalog(raw_catalog: str) -> list[RepoCandidate]:
@@ -86,102 +52,6 @@ def build_issue_body(ticket: Ticket) -> str:
         "### Requested Action\n"
         "Implement the requirement, commit with a descriptive message, and open a pull request."
     )
-
-
-def _trello_url(path: str, *, key: str, token: str, **params: str) -> str:
-    query = parse.urlencode({"key": key, "token": token, **params})
-    return f"https://api.trello.com/1/{path}?{query}"
-
-
-def fetch_trello_cards(list_id: str, *, key: str, token: str) -> list[dict[str, Any]]:
-    url = _trello_url(f"lists/{list_id}/cards", key=key, token=token, fields="name,desc,labels,shortLink")
-    return _http_json(url) or []
-
-
-def move_card_to_list(card_id: str, target_list_id: str, *, key: str, token: str) -> None:
-    url = _trello_url(f"cards/{card_id}", key=key, token=token)
-    _http_json(url, method="PUT", payload={"idList": target_list_id})
-
-
-def create_issue(owner: str, repo: str, title: str, body: str, token: str) -> dict[str, Any]:
-    url = f"https://api.github.com/repos/{owner}/{repo}/issues"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-    return _http_json(url, method="POST", headers=headers, payload={"title": title, "body": body})
-
-
-def dispatch_workflow(owner: str, repo: str, workflow_file: str, ref: str, inputs: dict[str, str], token: str) -> None:
-    url = f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/{workflow_file}/dispatches"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-    _http_json(url, method="POST", headers=headers, payload={"ref": ref, "inputs": inputs})
-
-
-def find_related_pr(owner: str, repo: str, ticket_id: str, token: str) -> str | None:
-    query = parse.quote(f'repo:{owner}/{repo} is:pr "{ticket_id}" in:title')
-    url = f"https://api.github.com/search/issues?q={query}&per_page=1"
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-    payload = _http_json(url, headers=headers) or {}
-    items = payload.get("items", [])
-    return items[0]["html_url"] if items else None
-
-
-def request_ai_repo_hint(ticket: Ticket, candidates: list[RepoCandidate], api_key: str | None) -> str | None:
-    if not api_key:
-        return None
-
-    prompt = {
-        "model": getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        "messages": [
-            {
-                "role": "user",
-                "content": (
-                    "Choose the most relevant repository full name from the list only.\n"
-                    f"Repositories: {', '.join(candidate.full_name for candidate in candidates)}\n"
-                    f"Ticket title: {ticket.title}\n"
-                    f"Ticket description: {ticket.description}\n"
-                    f"Ticket labels: {', '.join(ticket.labels)}\n"
-                    "Output only the repository full name."
-                ),
-            }
-        ],
-        "temperature": 0,
-    }
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = _http_json("https://api.openai.com/v1/chat/completions", method="POST", headers=headers, payload=prompt)
-    choices = payload.get("choices", []) if payload else []
-    if choices:
-        message = choices[0].get("message", {})
-        text = message.get("content")
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-    return None
-
-
-def send_email_notification(pr_url: str, ticket: Ticket) -> None:
-    host = getenv("SMTP_HOST")
-    try:
-        port = int(getenv("SMTP_PORT", "587"))
-    except ValueError as exc:
-        raise ValueError("SMTP_PORT must be a valid integer") from exc
-    username = getenv("SMTP_USERNAME")
-    password = getenv("SMTP_PASSWORD")
-    sender = getenv("EMAIL_SENDER")
-    recipient = getenv("EMAIL_RECIPIENT")
-    if not all([host, username, password, sender, recipient]):
-        return
-
-    msg = EmailMessage()
-    msg["Subject"] = f"PR ready for review: {ticket.title}"
-    msg["From"] = sender
-    msg["To"] = recipient
-    msg.set_content(f"Ticket {ticket.id} now has a pull request ready:\n{pr_url}")
-
-    try:
-        with smtplib.SMTP(host, port) as smtp:
-            smtp.starttls()
-            smtp.login(username, password)
-            smtp.send_message(msg)
-    except (smtplib.SMTPException, OSError):
-        return
 
 
 def run() -> int:
