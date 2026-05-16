@@ -1,96 +1,120 @@
 from __future__ import annotations
 
-import json
+import logging
+from typing import Any
 from os import getenv
 
 from dotenv import load_dotenv
+from automation.trello import api_client
+from automation.models import TrelloCard
+from automation.agents import CopilotTaskPlan, CopilotPlanningAgent
+from automation.attachments import download_card_attachments
+from automation.copilot import dispatch_copilot_plan
 
-from automation.email import send_email_notification
-from automation.github import find_related_pr
-from automation.http_client import _require_env
-from automation.models import RepoCandidate, Ticket
-from automation.trello import fetch_trello_cards, move_card_to_list
 
 load_dotenv()
 
-
-def parse_repo_catalog(raw_catalog: str) -> list[RepoCandidate]:
-    payload = json.loads(raw_catalog)
-    return [
-        RepoCandidate(full_name=item["full_name"], keywords=item.get("keywords", []))
-        for item in payload
-    ]
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
-def select_repository(ticket: Ticket, candidates: list[RepoCandidate], ai_hint: str | None = None) -> RepoCandidate:
-    if not candidates:
-        raise ValueError("No repository candidates configured")
+def get_current_unread_notifications() -> list[dict[str, Any]]:
+    """Fetch unread notifications for the authenticated Trello account."""
+    logger.info("Fetching current unread notifications...")
+    notifications = api_client.get_notifications(unread=True)
+    logger.info(f"Retrieved {len(notifications)} unread notifications")
+    return notifications
 
-    normalized_hint = (ai_hint or "").strip().lower()
-    for candidate in candidates:
-        if normalized_hint and normalized_hint == candidate.full_name.lower():
-            return candidate
-
-    haystack = f"{ticket.title} {ticket.description} {' '.join(ticket.labels)}".lower()
-    scored = sorted(
-        candidates,
-        key=lambda candidate: sum(1 for keyword in candidate.keywords if keyword.lower() in haystack),
-        reverse=True,
-    )
-    return scored[0]
-
-
-def build_issue_body(ticket: Ticket) -> str:
-    label_line = ", ".join(ticket.labels) if ticket.labels else "none"
-    return (
-        "Automated ticket intake from Trello.\n\n"
-        f"- Ticket ID: {ticket.id}\n"
-        f"- Title: {ticket.title}\n"
-        f"- Labels: {label_line}\n\n"
-        "### Requirement\n"
-        f"{ticket.description.strip() or '(no description provided)'}\n\n"
-        "### Requested Action\n"
-        "Implement the requirement, commit with a descriptive message, and open a pull request."
-    )
+def get_todo_card() -> TrelloCard | None:
+    """Fetch a single card from the configured TODO list."""
+    logger.info("Fetching a card from the TODO list...")
+    card = api_client.pick_one_card_from_todo()
+    if card:
+        attachments = api_client.get_card_attachments(card.id)
+        logger.info(f"Retrieved card: {card.name} with {len(attachments)} attachments")
+        checkitems = api_client.get_card_checklist_checkitems(card.id)
+        logger.info(f"Card has {len(checkitems)} checklist items")
+        comments = api_client.get_card_comments(card.id)
+        logger.info(f"Card has {len(comments)} comments")
+    else:
+        logger.info("No cards available in TODO list")
+    return card
 
 
 def run() -> int:
-    trello_key = _require_env("TRELLO_API_KEY")
-    trello_token = _require_env("TRELLO_TOKEN")
-    todo_list_id = _require_env("TRELLO_TODO_LIST_ID")
-    doing_list_id = _require_env("TRELLO_DOING_LIST_ID")
-    done_list_id = getenv("TRELLO_DONE_LIST_ID")
-    github_token = _require_env("GITHUB_TOKEN")
-    repo_catalog = parse_repo_catalog(_require_env("REPO_CATALOG_JSON"))
+    """Orchestrator for running the automation."""
+    logger.info("Starting automation orchestrator...")
+    enable_dispatch = getenv("ENABLE_COPILOT_DISPATCH", "0") == "1"
+    repository_hint = getenv("COPILOT_TARGET_REPOSITORY", None)
 
-    todo_cards = fetch_trello_cards(todo_list_id, key=trello_key, token=trello_token)
+    if repository_hint:
+        logger.info(f"Using repository hint for Copilot planning: {repository_hint}")
+    elif enable_dispatch:
+        logger.error("No repository hint provided for Copilot dispatch (set COPILOT_TARGET_REPOSITORY env var)")
+        return 1
+    else:
+        logger.warning("No repository hint provided; planning will continue and dispatch remains disabled")
 
-    # Move one card from TODO to DOING
-    doing_card_id: str | None = None
-    if todo_cards:
-        doing_card_id = todo_cards[0]["id"]
-        move_card_to_list(doing_card_id, doing_list_id, key=trello_key, token=trello_token)
+    plan = build_copilot_plan_for_todo_card(repository_hint=repository_hint)
+    if not plan:
+        logger.error("Failed to build a Copilot task plan from TODO card")
+        return 1
 
-    # Check remaining TODO cards for related PRs and move to DONE
-    for raw in todo_cards:
-        if raw["id"] == doing_card_id:
-            continue
-        ticket = Ticket(
-            id=raw["shortLink"],
-            title=raw["name"],
-            description=raw.get("desc", ""),
-            labels=[label.get("name", "").strip() for label in raw.get("labels", []) if label.get("name")],
-        )
-        target_repo = select_repository(ticket, repo_catalog, ai_hint=None)
-        if "/" not in target_repo.full_name:
-            raise ValueError(f"Repository full_name must be in owner/repo format: {target_repo.full_name}")
-        owner, repo = target_repo.full_name.split("/", 1)
-        pr_url = find_related_pr(owner, repo, ticket.id, github_token)
-        if pr_url:
-            send_email_notification(pr_url, ticket)
-            if done_list_id:
-                move_card_to_list(raw["id"], done_list_id, key=trello_key, token=trello_token)
+    try:
+        if plan:
+            logger.info("Copilot plan ready: %s", plan.task_title)
+            if enable_dispatch:
+                try:
+                    result = dispatch_copilot_plan(plan)
+                    logger.info("Copilot dispatch result: %s", result.get("status", "unknown"))
+                except Exception as sdk_exc:
+                    logger.error("Failed to dispatch Copilot SDK task: %s", sdk_exc)
+                    return 1
+            else:
+                logger.info("Skipping Copilot dispatch (set ENABLE_COPILOT_DISPATCH=1 to enable)")
+    except ValueError as exc:
+        logger.warning("Skipping Copilot planning: %s", exc)
+
+    logger.info("Automation orchestrator completed successfully")
     return 0
+
+
+def build_copilot_plan_for_todo_card(repository_hint: str | None = None) -> CopilotTaskPlan | None:
+    """Build an implementation-ready task plan for the current TODO card using Copilot."""
+    card = api_client.pick_one_card_from_todo()
+    if not card:
+        logger.info("No TODO card found for Copilot planning")
+        return None
+
+    attachments = api_client.get_card_attachments(card.id)
+    logger.info(
+        "Building Copilot plan for card: %s with the following attachments: %s",
+        card.name,
+        [a.url for a in attachments] if attachments else "No attachments",
+    )
+    checkitems = api_client.get_card_checklist_checkitems(card.id)
+    comments = api_client.get_card_comments(card.id)
+
+    downloaded_files = download_card_attachments(attachments)
+
+    enable_planning = getenv("ENABLE_COPILOT_PLANNING", "1") == "1"
+    if not enable_planning:
+        logger.info("Copilot planning is disabled (set ENABLE_COPILOT_PLANNING=1 to enable)")
+        return None
+    agent = CopilotPlanningAgent()
+    plan = agent.generate_plan(
+        card=card,
+        attachments=attachments,
+        check_items=checkitems,
+        comments=comments,
+        downloaded_files=downloaded_files,
+        repository_hint=repository_hint,
+    )
+    logger.info("Generated Copilot task plan: %s", plan.task_title)
+    return plan
 
 
 if __name__ == "__main__":

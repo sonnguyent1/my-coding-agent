@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "automation-orchestrator"
+version = "0.1.0"
+description = "Trello to GitHub background automation package"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "openai>=1.35.0",
+  "python-dotenv==1.1.1",
+  "github-copilot-sdk==0.3.0"
+]
+
+[project.scripts]
+automation-orchestrator = "automation.orchestrator:run"
+
+[tool.setuptools]
+packages = ["automation"]

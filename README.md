@@ -8,22 +8,30 @@ Background automation project that:
 4. Creates an implementation issue in that repository and optionally dispatches a coding workflow that can commit and create a PR.
 5. Checks TODO tickets for related PRs and emails you once one is found, so you can review/approve or apply manual fixes. If `TRELLO_DONE_LIST_ID` is configured, notified cards are moved to DONE to avoid duplicate notifications.
 
-## Files
+## Package Layout
 
-- `/automation/orchestrator.py` - Main background automation logic.
-- `/.github/workflows/background-automation.yml` - Scheduled GitHub Actions workflow (every 10 minutes).
-- `/tests/test_orchestrator.py` - Focused unit tests for routing/body generation logic.
-- `/docs/technical-implementation-and-deployment.md` - End-to-end technical flow and deployment guide.
+- `automation` - Installable Python package for the automation workflow.
+- `automation/orchestrator.py` - Package entry point and orchestrator runner.
+- `automation/__main__.py` - Enables `python -m automation`.
+- `tests/test_package.py` - Basic package smoke test.
+- `pyproject.toml` - Build metadata and console script definition.
 
 ## Dependencies
 
-Install dependencies from `requirements.txt`:
+Install the package in editable mode for local development:
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 ```
 
 The project uses `python-dotenv` to load environment variables from a `.env` file for local runs.
+
+You can also run the package directly:
+
+```bash
+python -m automation
+automation-orchestrator
+```
 
 ## Configuration
 

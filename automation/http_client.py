@@ -20,6 +20,19 @@ def _http_json(url: str, method: str = "GET", headers: dict[str, str] | None = N
         raise RuntimeError(f"Network error calling {url}: {exc.reason}") from exc
 
 
+def _http_bytes(url: str, headers: dict[str, str] | None = None, max_bytes: int = 1024 * 1024) -> bytes:
+    """Download raw bytes from *url*, reading at most *max_bytes*."""
+    req = request.Request(url=url, method="GET", headers=headers or {})
+    try:
+        with request.urlopen(req, timeout=60) as response:
+            return response.read(max_bytes)
+    except error.HTTPError as exc:
+        details = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {exc.code} downloading {url}: {details}") from exc
+    except error.URLError as exc:
+        raise RuntimeError(f"Network error downloading {url}: {exc.reason}") from exc
+
+
 def _require_env(name: str) -> str:
     value = getenv(name)
     if value is None:
