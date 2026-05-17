@@ -109,7 +109,7 @@ async def _dispatch_copilot_plan_async(plan: CopilotTaskPlan) -> dict[str, Any]:
                         done.set()
 
             session.on(on_event)
-
+            logger.info("Sending prompt to Copilot session: %s", prompt)
             await session.send(prompt, attachments=attachments or None)
             await done.wait()  # Wait for streaming to complete
 
