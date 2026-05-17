@@ -8,11 +8,7 @@ from typing import Any
 
 from automation.agents import CopilotTaskPlan
 from copilot import CopilotClient, SubprocessConfig
-from copilot.generated.session_events import (
-    AssistantMessageData,
-    AssistantMessageDeltaData,
-    SessionIdleData,
-)
+from copilot.generated.session_events import AssistantMessageData
 from copilot.session import Attachment, PermissionHandler
 
 
@@ -86,41 +82,32 @@ async def _dispatch_copilot_plan_async(plan: CopilotTaskPlan) -> dict[str, Any]:
             model=model,
             working_directory=working_directory,
             github_token=github_token,
-            streaming=True,  # Enable streaming
         )
         logger.info("Created CopilotClient session: %s", session.session_id)
         try:
             logger.info("Sending prompt to Copilot session with timeout of %s seconds", timeout_seconds)
-            done = asyncio.Event()
-
-            def on_event(event):
-                match event.data:
-                    case AssistantMessageDeltaData() as data:
-                        # Print streaming message chunks incrementally
-                        delta = data.delta_content or ""
-                        print(delta, end="", flush=True)
-                    case AssistantMessageData() as data:
-                        # Print the final complete message
-                        print("\n--- Final message ---")
-                        print(data.content)
-                        done.set()
-                    case SessionIdleData():
-                        # Signal that the session has finished processing
-                        done.set()
-
-            session.on(on_event)
             logger.info("Sending prompt to Copilot session: %s", prompt)
-            await session.send(prompt, attachments=attachments or None)
-            await done.wait()  # Wait for streaming to complete
+            event = await session.send_and_wait(
+                prompt,
+                attachments=attachments or None,
+                timeout=timeout_seconds,
+            )
+            logger.info("Received response from Copilot session (event_type=%s)", getattr(event, "type", None))
 
-            # Collect the final assistant message
             assistant_text = ""
             message_id = None
-            for history_event in reversed(await session.get_messages()):
-                if isinstance(history_event.data, AssistantMessageData):
-                    assistant_text = history_event.data.content
-                    message_id = history_event.data.message_id
-                    break
+            if event and isinstance(event.data, AssistantMessageData):
+                assistant_text = event.data.content
+                message_id = event.data.message_id
+            else:
+                for history_event in reversed(await session.get_messages()):
+                    if isinstance(history_event.data, AssistantMessageData):
+                        assistant_text = history_event.data.content
+                        message_id = history_event.data.message_id
+                        break
+
+            if assistant_text:
+                logger.info("Copilot response: %s", assistant_text)
 
             return {
                 "status": "sent",
