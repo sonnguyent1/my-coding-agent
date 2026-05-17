@@ -73,7 +73,7 @@ def run() -> int:
                     done.set()
 
         session.on(on_event)
-        await session.send("What is 2+2?")
+        await session.send("Tell me a short story about a brave knight.")
         await done.wait()
 
         # Clean up manually
