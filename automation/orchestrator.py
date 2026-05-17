@@ -84,14 +84,24 @@ def run() -> int:
 
 def build_copilot_plan_for_todo_card(repository_hint: str | None = None) -> CopilotTaskPlan | None:
     """Build an implementation-ready task plan for the current TODO card using Copilot."""
-    card = api_client.pick_one_card_from_todo()
+    card = api_client.pick_one_card_from_doing()
+    card_origin = "doing"
+
     if not card:
-        logger.info("No TODO card found for Copilot planning")
+        card = api_client.pick_one_card_from_todo()
+        card_origin = "todo"
+
+    if not card:
+        logger.info("No Doing or TODO card found for Copilot planning")
         return None
+
+    if card_origin == "todo":
+        api_client.move_card_to_doing(card.id)
 
     attachments = api_client.get_card_attachments(card.id)
     logger.info(
-        "Building Copilot plan for card: %s with the following attachments: %s",
+        "Building Copilot plan for %s card: %s with the following attachments: %s",
+        card_origin,
         card.name,
         [a.url for a in attachments] if attachments else "No attachments",
     )

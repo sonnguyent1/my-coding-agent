@@ -68,6 +68,24 @@ class _TrelloRestClient:
         cards = self.fetch_cards(self.todo_list_id, fields="id")
         picked_card = self.get_card(cards[0].id) if cards else None
         return picked_card
+
+    def pick_one_card_from_doing(self) -> TrelloCard | None:
+        doing_list_id = getenv("TRELLO_DOING_LIST_ID")
+        if not doing_list_id:
+            logger.warning("TRELLO_DOING_LIST_ID is not set; skipping Doing list lookup")
+            return None
+
+        cards = self.fetch_cards(doing_list_id, fields="id")
+        picked_card = self.get_card(cards[0].id) if cards else None
+        return picked_card
+    
+    def move_card_to_doing(self, card_id: str) -> None:
+        doing_list_id = getenv("TRELLO_DOING_LIST_ID")
+        if not doing_list_id:
+            logger.error("TRELLO_DOING_LIST_ID environment variable is not set. Cannot move card to Doing list.")
+            return
+        self.move_card_to_list(card_id, doing_list_id)
+        
     
     def get_card(self, card_id: str) -> TrelloCard:
         payload = self.request(f"cards/{card_id}")
