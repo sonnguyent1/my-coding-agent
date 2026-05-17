@@ -8,7 +8,11 @@ from typing import Any
 
 from automation.agents import CopilotTaskPlan
 from copilot import CopilotClient, SubprocessConfig
-from copilot.generated.session_events import AssistantMessageData
+from copilot.generated.session_events import (
+    AssistantMessageData,
+    AssistantMessageDeltaData,
+    SessionIdleData,
+)
 from copilot.session import Attachment, PermissionHandler
 
 
@@ -48,7 +52,8 @@ def _build_dispatch_prompt(plan: CopilotTaskPlan, repository_hint: str | None) -
         "Execution requirements:\n"
         "- Implement the requested code changes completely.\n"
         "- Run relevant checks/tests and include results in your summary.\n"
-        "- Respond only with 'FAIL' or 'OK' indicating whether the code implementation is successful or failed.\n"
+        "- Respond only with the following JSON format:\n"
+        "  {\"status\": \"OK\"|\"FAILED\", \"pullRequestUrl\": <URL of the Pull request>}\n"
         "- Commit changes using a clear, conventional commit message.\n"
         "- Create a proper pull request after implementation is complete.\n"
         "- Ensure the pull request is visible in the Pull Request section of the GitHub site.\n"
@@ -81,30 +86,41 @@ async def _dispatch_copilot_plan_async(plan: CopilotTaskPlan) -> dict[str, Any]:
             model=model,
             working_directory=working_directory,
             github_token=github_token,
+            streaming=True,  # Enable streaming
         )
         logger.info("Created CopilotClient session: %s", session.session_id)
         try:
             logger.info("Sending prompt to Copilot session with timeout of %s seconds", timeout_seconds)
-            event = await session.send_and_wait(
-                prompt,
-                attachments=attachments or None,
-                timeout=timeout_seconds,
-            )
-            event_type = getattr(event, "type", None)
-            logger.info("Received response from Copilot session (event_type=%s)", event_type)
+            done = asyncio.Event()
+
+            def on_event(event):
+                match event.data:
+                    case AssistantMessageDeltaData() as data:
+                        # Print streaming message chunks incrementally
+                        delta = data.delta_content or ""
+                        print(delta, end="", flush=True)
+                    case AssistantMessageData() as data:
+                        # Print the final complete message
+                        print("\n--- Final message ---")
+                        print(data.content)
+                        done.set()
+                    case SessionIdleData():
+                        # Signal that the session has finished processing
+                        done.set()
+
+            session.on(on_event)
+
+            await session.send(prompt, attachments=attachments or None)
+            await done.wait()  # Wait for streaming to complete
+
+            # Collect the final assistant message
             assistant_text = ""
             message_id = None
-
-            if event and isinstance(event.data, AssistantMessageData):
-                assistant_text = event.data.content
-                message_id = event.data.message_id
-            else:
-                # Fallback when send_and_wait does not return a final assistant message.
-                for history_event in reversed(await session.get_messages()):
-                    if isinstance(history_event.data, AssistantMessageData):
-                        assistant_text = history_event.data.content
-                        message_id = history_event.data.message_id
-                        break
+            for history_event in reversed(await session.get_messages()):
+                if isinstance(history_event.data, AssistantMessageData):
+                    assistant_text = history_event.data.content
+                    message_id = history_event.data.message_id
+                    break
 
             return {
                 "status": "sent",
