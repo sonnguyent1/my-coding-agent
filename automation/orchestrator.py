@@ -60,7 +60,7 @@ def run() -> int:
         # Create a session (on_permission_request is required)
         session = await client.create_session(
             on_permission_request=PermissionHandler.approve_all,
-            model="gpt-4o",
+            model="auto",
         )
 
         done = asyncio.Event()
