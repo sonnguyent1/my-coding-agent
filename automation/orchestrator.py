@@ -47,38 +47,40 @@ def get_todo_card() -> TrelloCard | None:
 def run() -> int:
     """Orchestrator for running the automation."""
     logger.info("Starting automation orchestrator...")
-    enable_dispatch = getenv("ENABLE_COPILOT_DISPATCH", "0") == "1"
-    repository_hint = getenv("COPILOT_TARGET_REPOSITORY", None)
+    import asyncio
 
-    if repository_hint:
-        logger.info(f"Using repository hint for Copilot planning: {repository_hint}")
-    elif enable_dispatch:
-        logger.error("No repository hint provided for Copilot dispatch (set COPILOT_TARGET_REPOSITORY env var)")
-        return 1
-    else:
-        logger.warning("No repository hint provided; planning will continue and dispatch remains disabled")
+    from copilot import CopilotClient
+    from copilot.generated.session_events import AssistantMessageData, SessionIdleData
+    from copilot.session import PermissionHandler
 
-    plan = build_copilot_plan_for_todo_card(repository_hint=repository_hint)
-    if not plan:
-        logger.error("Failed to build a Copilot task plan from TODO card")
-        return 1
+    async def main():
+        client = CopilotClient()
+        await client.start()
 
-    try:
-        if plan:
-            logger.info("Copilot plan ready: %s", plan.task_title)
-            if enable_dispatch:
-                try:
-                    result = dispatch_copilot_plan(plan)
-                    logger.info("Copilot dispatch result: %s", result.get("status", "unknown"))
-                except Exception as sdk_exc:
-                    logger.error("Failed to dispatch Copilot SDK task: %s", sdk_exc)
-                    return 1
-            else:
-                logger.info("Skipping Copilot dispatch (set ENABLE_COPILOT_DISPATCH=1 to enable)")
-    except ValueError as exc:
-        logger.warning("Skipping Copilot planning: %s", exc)
+        # Create a session (on_permission_request is required)
+        session = await client.create_session(
+            on_permission_request=PermissionHandler.approve_all,
+            model="gpt-5",
+        )
 
-    logger.info("Automation orchestrator completed successfully")
+        done = asyncio.Event()
+
+        def on_event(event):
+            match event.data:
+                case AssistantMessageData() as data:
+                    print(data.content)
+                case SessionIdleData():
+                    done.set()
+
+        session.on(on_event)
+        await session.send("What is 2+2?")
+        await done.wait()
+
+        # Clean up manually
+        await session.disconnect()
+        await client.stop()
+
+    asyncio.run(main())
     return 0
 
 
